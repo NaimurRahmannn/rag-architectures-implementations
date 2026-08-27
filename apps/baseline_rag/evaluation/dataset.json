@@ -1,0 +1,74 @@
+{
+  "documents": [
+    {
+      "id": "leave-policy",
+      "source": "leave_policy.md",
+      "content": "Full-time employees receive 20 days of paid annual leave each calendar year. Leave requests longer than three consecutive business days require manager approval and must be submitted at least 14 days before the planned absence.",
+      "metadata": {
+        "department": "HR"
+      }
+    },
+    {
+      "id": "remote-work-policy",
+      "source": "remote_work_policy.md",
+      "content": "Employees may work remotely for up to three days per week with manager approval. New employees become eligible for remote work after completing their first 30 days.",
+      "metadata": {
+        "department": "HR"
+      }
+    },
+    {
+      "id": "training-policy",
+      "source": "training_policy.md",
+      "content": "Each employee receives an annual professional-development budget of 1000 dollars. It may be used for courses, books, certifications and conferences related to the employee's role.",
+      "metadata": {
+        "department": "Learning"
+      }
+    },
+    {
+      "id": "security-policy",
+      "source": "security_policy.md",
+      "content": "Suspected security incidents must be reported to the security team within one hour. Employees must not investigate incidents using personal devices.",
+      "metadata": {
+        "department": "Security"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "leave-days",
+      "query": "How many paid annual leave days do full-time employees receive?",
+      "relevant_document_ids": [
+        "leave-policy"
+      ]
+    },
+    {
+      "id": "remote-days",
+      "query": "How many days per week can an employee work from home?",
+      "relevant_document_ids": [
+        "remote-work-policy"
+      ]
+    },
+    {
+      "id": "training-budget",
+      "query": "What is the yearly professional development allowance?",
+      "relevant_document_ids": [
+        "training-policy"
+      ]
+    },
+    {
+      "id": "incident-reporting",
+      "query": "How quickly must a suspected security incident be reported?",
+      "relevant_document_ids": [
+        "security-policy"
+      ]
+    },
+    {
+      "id": "manager-approval",
+      "query": "Which employee policies require manager approval?",
+      "relevant_document_ids": [
+        "leave-policy",
+        "remote-work-policy"
+      ]
+    }
+  ]
+}
