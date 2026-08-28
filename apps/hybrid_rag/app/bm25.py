@@ -134,6 +134,9 @@ class BM25Index:
                 statistics,
             )
 
+            if score == 0:
+                continue
+
             results.append(
                 BM25Result(
                     document=statistics.document,

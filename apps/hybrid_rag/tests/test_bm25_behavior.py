@@ -57,6 +57,8 @@ def test_rare_terms_receive_stronger_idf_signal() -> None:
     index = BM25Index(documents)
 
     assert index.idf("token") > index.idf("authentication")
+
+
 def test_exact_identifier_is_strong_lexical_signal() -> None:
     documents = [
         Document(
@@ -91,6 +93,7 @@ def test_exact_identifier_is_strong_lexical_signal() -> None:
 
     assert results[0].document.metadata["chunk_id"] == "auth-401"
 
+
 def test_multiple_query_terms_accumulate() -> None:
     documents = [
         Document(
@@ -116,6 +119,7 @@ def test_multiple_query_terms_accumulate() -> None:
 
     assert results[0].document.metadata["chunk_id"] == "doc-1"
 
+
 def test_document_length_affects_score() -> None:
     documents = [
         Document(
@@ -138,11 +142,35 @@ def test_document_length_affects_score() -> None:
         top_k=2,
     )
 
-    for result in results:
-        print(
-            result.document.metadata["chunk_id"],
-            result.score,
-        )
+    assert results[0].document.metadata["chunk_id"] == "short"
+    assert results[1].document.metadata["chunk_id"] == "long"
+    assert results[0].score > results[1].score
+
+
+def test_search_excludes_zero_score_documents() -> None:
+    documents = [
+        Document(
+            page_content="authentication token expired",
+            metadata={"chunk_id": "matching"},
+        ),
+        Document(
+            page_content="database connection timeout",
+            metadata={"chunk_id": "non-matching"},
+        ),
+    ]
+
+    index = BM25Index(documents)
+
+    results = index.search(
+        "authentication",
+        top_k=2,
+    )
+
+    assert len(results) == 1
+    assert results[0].document.metadata["chunk_id"] == "matching"
+    assert results[0].score > 0
+
+
 def test_bm25_has_lexical_limitation() -> None:
     documents = [
         Document(
@@ -167,4 +195,4 @@ def test_bm25_has_lexical_limitation() -> None:
         top_k=2,
     )
 
-    print(results)
+    assert results == []
