@@ -1,0 +1,30 @@
+[
+  {
+    "query": "What does AUTH-401 mean?",
+    "relevant_chunk_ids": ["chunk-001"]
+  },
+  {
+    "query": "What does AUTH-403 mean?",
+    "relevant_chunk_ids": ["chunk-002"]
+  },
+  {
+    "query": "What does AUTH-404 mean?",
+    "relevant_chunk_ids": ["chunk-003"]
+  },
+  {
+    "query": "What happens when an access token expires?",
+    "relevant_chunk_ids": ["chunk-004"]
+  },
+  {
+    "query": "How can I get a new access token?",
+    "relevant_chunk_ids": ["chunk-005"]
+  },
+  {
+    "query": "How should an access token be sent to the API?",
+    "relevant_chunk_ids": ["chunk-006"]
+  },
+  {
+    "query": "How should credentials be protected?",
+    "relevant_chunk_ids": ["chunk-007"]
+  }
+]
