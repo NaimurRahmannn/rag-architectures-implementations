@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import sqrt
@@ -7,11 +8,22 @@ from typing import Protocol
 
 from langchain_core.documents import Document
 
+from apps.hybrid_rag.app.bm25 import BM25Index
+
 
 @dataclass(frozen=True)
 class ScoredDocument:
     document: Document
     score: float
+
+
+class Retriever(Protocol):
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> list[ScoredDocument]:
+        """Return documents ordered by relevance."""
 
 
 class EmbeddingModel(Protocol):
@@ -32,6 +44,46 @@ class EmbeddingModel(Protocol):
 class DenseDocumentVector:
     document: Document
     vector: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class HybridCandidate:
+    document: Document
+    chunk_id: str
+    sources: tuple[str, ...]
+    bm25_score: float | None = None
+    dense_score: float | None = None
+
+
+@dataclass(frozen=True)
+class ParallelHybridResult:
+    bm25_results: tuple[ScoredDocument, ...]
+    dense_results: tuple[ScoredDocument, ...]
+    candidates: tuple[HybridCandidate, ...]
+
+
+class BM25Retriever:
+    def __init__(
+        self,
+        index: BM25Index,
+    ) -> None:
+        self.index = index
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> list[ScoredDocument]:
+        return [
+            ScoredDocument(
+                document=result.document,
+                score=result.score,
+            )
+            for result in self.index.search(
+                query,
+                top_k=top_k,
+            )
+        ]
 
 
 class InMemoryDenseIndex:
@@ -113,6 +165,102 @@ class InMemoryDenseIndex:
         )
 
         return results[:top_k]
+
+
+class ParallelHybridRetriever:
+    def __init__(
+        self,
+        bm25_retriever: Retriever,
+        dense_retriever: Retriever,
+    ) -> None:
+        self.bm25_retriever = bm25_retriever
+        self.dense_retriever = dense_retriever
+
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> ParallelHybridResult:
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than 0")
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            bm25_future = executor.submit(
+                self.bm25_retriever.search,
+                query,
+                top_k,
+            )
+            dense_future = executor.submit(
+                self.dense_retriever.search,
+                query,
+                top_k,
+            )
+
+            bm25_results = tuple(bm25_future.result())
+            dense_results = tuple(dense_future.result())
+
+        return ParallelHybridResult(
+            bm25_results=bm25_results,
+            dense_results=dense_results,
+            candidates=collect_candidates(
+                bm25_results=bm25_results,
+                dense_results=dense_results,
+            ),
+        )
+
+
+def collect_candidates(
+    *,
+    bm25_results: Sequence[ScoredDocument],
+    dense_results: Sequence[ScoredDocument],
+) -> tuple[HybridCandidate, ...]:
+    candidates: dict[str, HybridCandidate] = {}
+
+    for source, results in (
+        ("bm25", bm25_results),
+        ("dense", dense_results),
+    ):
+        for result in results:
+            chunk_id = str(
+                result.document.metadata.get(
+                    "chunk_id",
+                    "unknown",
+                )
+            )
+            current = candidates.get(chunk_id)
+
+            if current is None:
+                candidates[chunk_id] = HybridCandidate(
+                    document=result.document,
+                    chunk_id=chunk_id,
+                    sources=(source,),
+                    bm25_score=result.score if source == "bm25" else None,
+                    dense_score=result.score if source == "dense" else None,
+                )
+                continue
+
+            sources = current.sources
+
+            if source not in sources:
+                sources = (*sources, source)
+
+            candidates[chunk_id] = HybridCandidate(
+                document=current.document,
+                chunk_id=current.chunk_id,
+                sources=sources,
+                bm25_score=(
+                    result.score
+                    if source == "bm25"
+                    else current.bm25_score
+                ),
+                dense_score=(
+                    result.score
+                    if source == "dense"
+                    else current.dense_score
+                ),
+            )
+
+    return tuple(candidates.values())
 
 
 def cosine_similarity(
