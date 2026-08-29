@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.documents import Document
 
 from apps.hybrid_rag.app.bm25 import BM25Index
@@ -88,6 +89,47 @@ def test_collect_candidates_deduplicates_bm25_and_dense_results() -> None:
     assert candidates[0].dense_score == 0.9
     assert candidates[1].chunk_id == "chunk-004"
     assert candidates[1].sources == ("dense",)
+
+
+def test_collect_candidates_requires_chunk_id() -> None:
+    document = Document(
+        page_content="Authorization header",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Retrieved document is missing chunk_id metadata.",
+    ):
+        collect_candidates(
+            bm25_results=[
+                ScoredDocument(
+                    document=document,
+                    score=1.2,
+                ),
+            ],
+            dense_results=[],
+        )
+
+
+def test_collect_candidates_rejects_empty_chunk_id() -> None:
+    document = Document(
+        page_content="Authorization header",
+        metadata={"chunk_id": "   "},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Retrieved document has an empty chunk_id.",
+    ):
+        collect_candidates(
+            bm25_results=[],
+            dense_results=[
+                ScoredDocument(
+                    document=document,
+                    score=0.9,
+                ),
+            ],
+        )
 
 
 def test_parallel_hybrid_retriever_runs_both_retrievers() -> None:

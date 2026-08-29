@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from math import sqrt
 from typing import Protocol
@@ -221,12 +221,7 @@ def collect_candidates(
         ("dense", dense_results),
     ):
         for result in results:
-            chunk_id = str(
-                result.document.metadata.get(
-                    "chunk_id",
-                    "unknown",
-                )
-            )
+            chunk_id = get_chunk_id(result.document)
             current = candidates.get(chunk_id)
 
             if current is None:
@@ -261,6 +256,20 @@ def collect_candidates(
             )
 
     return tuple(candidates.values())
+
+
+def get_chunk_id(document: Document) -> str:
+    chunk_id = document.metadata.get("chunk_id")
+
+    if chunk_id is None:
+        raise ValueError("Retrieved document is missing chunk_id metadata.")
+
+    value = str(chunk_id).strip()
+
+    if not value:
+        raise ValueError("Retrieved document has an empty chunk_id.")
+
+    return value
 
 
 def cosine_similarity(
