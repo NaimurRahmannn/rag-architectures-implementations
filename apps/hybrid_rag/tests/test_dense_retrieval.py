@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from langchain_core.documents import Document
 
 from apps.hybrid_rag.app.retrieval import (
+    DenseRetriever,
     InMemoryDenseIndex,
     cosine_similarity,
 )
@@ -95,6 +96,31 @@ def test_dense_index_returns_semantically_matching_document_first() -> None:
 
     assert results[0].document.metadata["chunk_id"] == "chunk-006"
     assert results[0].score > results[1].score
+
+
+def test_dense_retriever_adapts_dense_index_to_common_interface() -> None:
+    documents = [
+        Document(
+            page_content="Authorization header",
+            metadata={"chunk_id": "chunk-006"},
+        ),
+        Document(
+            page_content="Token expiration",
+            metadata={"chunk_id": "chunk-004"},
+        ),
+    ]
+    index = InMemoryDenseIndex(
+        documents,
+        embeddings=ToyEmbeddingModel(),
+    )
+    retriever = DenseRetriever(index)
+
+    results = retriever.search(
+        "How should an access token be sent to the API?",
+        top_k=1,
+    )
+
+    assert results[0].document.metadata["chunk_id"] == "chunk-006"
 
 
 def test_dense_index_validates_query_vector_dimension() -> None:

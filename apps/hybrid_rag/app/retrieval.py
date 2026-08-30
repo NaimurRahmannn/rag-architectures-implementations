@@ -167,6 +167,24 @@ class InMemoryDenseIndex:
         return results[:top_k]
 
 
+class DenseRetriever:
+    def __init__(
+        self,
+        index: InMemoryDenseIndex,
+    ) -> None:
+        self.index = index
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> list[ScoredDocument]:
+        return self.index.search(
+            query,
+            top_k=top_k,
+        )
+
+
 class ParallelHybridRetriever:
     def __init__(
         self,
