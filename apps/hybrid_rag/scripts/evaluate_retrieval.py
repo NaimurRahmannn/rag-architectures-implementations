@@ -14,6 +14,12 @@ from apps.hybrid_rag.app.evaluation import (
     evaluate_dataset,
 )
 from apps.hybrid_rag.app.fusion import RRFRetriever
+from apps.hybrid_rag.app.reranking import (
+    DEFAULT_CROSS_ENCODER_MODEL,
+    CrossEncoderReranker,
+    Reranker,
+    RerankingRetriever,
+)
 from apps.hybrid_rag.app.retrieval import (
     BM25Retriever,
     DenseRetriever,
@@ -97,9 +103,32 @@ def build_rrf_retriever(
     )
 
 
+def build_cross_encoder_reranker(
+    model_name: str = DEFAULT_CROSS_ENCODER_MODEL,
+) -> CrossEncoderReranker:
+    return CrossEncoderReranker(
+        model_name=model_name,
+    )
+
+
+def build_reranking_retriever(
+    retriever: Retriever,
+    reranker: Reranker,
+    *,
+    candidate_k: int = 20,
+) -> RerankingRetriever:
+    return RerankingRetriever(
+        retriever,
+        reranker,
+        candidate_k=candidate_k,
+    )
+
+
 def build_retrieval_baselines(
     chunks: Sequence[Document],
     embeddings: EmbeddingModel,
+    *,
+    reranker: Reranker | None = None,
 ) -> tuple[tuple[str, Retriever], ...]:
     bm25_retriever = build_bm25_retriever(chunks)
     dense_retriever = build_dense_retriever(
@@ -111,10 +140,24 @@ def build_retrieval_baselines(
         dense_retriever,
     )
 
-    return (
+    baselines: tuple[tuple[str, Retriever], ...] = (
         ("BM25", bm25_retriever),
         ("Dense", dense_retriever),
         ("RRF", rrf_retriever),
+    )
+
+    if reranker is None:
+        return baselines
+
+    return (
+        *baselines,
+        (
+            "Rerank",
+            build_reranking_retriever(
+                rrf_retriever,
+                reranker,
+            ),
+        ),
     )
 
 
@@ -314,6 +357,7 @@ def main() -> None:
     baselines = build_retrieval_baselines(
         chunks,
         embeddings=build_gemini_embeddings(),
+        reranker=build_cross_encoder_reranker(),
     )
 
     baseline_evaluations = evaluate_baselines(

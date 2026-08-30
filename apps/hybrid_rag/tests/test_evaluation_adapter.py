@@ -60,6 +60,21 @@ class KeywordEmbeddingModel:
         return [0.0, 0.0]
 
 
+class FixedScoreReranker:
+    def __init__(
+        self,
+        scores: list[float],
+    ) -> None:
+        self.scores = scores
+
+    def score(
+        self,
+        query: str,
+        documents: list[Document],
+    ) -> list[float]:
+        return self.scores[: len(documents)]
+
+
 def test_retrieve_chunk_ids_adapts_any_retriever_result_to_ranked_ids() -> None:
     retriever = FixedRetriever(
         [
@@ -262,6 +277,32 @@ def test_build_retrieval_baselines_includes_rrf() -> None:
         name
         for name, _retriever in baselines
     ] == ["BM25", "Dense", "RRF"]
+
+
+def test_build_retrieval_baselines_can_include_reranker() -> None:
+    chunks = [
+        Document(
+            page_content="Authorization header",
+            metadata={"chunk_id": "chunk-006"},
+        ),
+        Document(
+            page_content="Expired token",
+            metadata={"chunk_id": "chunk-004"},
+        ),
+    ]
+
+    baselines = build_retrieval_baselines(
+        chunks,
+        embeddings=KeywordEmbeddingModel(),
+        reranker=FixedScoreReranker(
+            [0.2, 0.9]
+        ),
+    )
+
+    assert [
+        name
+        for name, _retriever in baselines
+    ] == ["BM25", "Dense", "RRF", "Rerank"]
 
 
 def test_format_rank_returns_first_relevant_rank() -> None:
