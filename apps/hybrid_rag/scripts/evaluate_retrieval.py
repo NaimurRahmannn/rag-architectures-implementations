@@ -13,11 +13,13 @@ from apps.hybrid_rag.app.evaluation import (
     EvaluationSummary,
     evaluate_dataset,
 )
+from apps.hybrid_rag.app.fusion import RRFRetriever
 from apps.hybrid_rag.app.retrieval import (
     BM25Retriever,
     DenseRetriever,
     EmbeddingModel,
     InMemoryDenseIndex,
+    ParallelHybridRetriever,
     Retriever,
     get_chunk_id,
 )
@@ -75,6 +77,44 @@ def build_dense_retriever(
             chunks,
             embeddings=embeddings,
         )
+    )
+
+
+def build_rrf_retriever(
+    bm25_retriever: Retriever,
+    dense_retriever: Retriever,
+    *,
+    rank_constant: int = 60,
+    candidate_k: int = 20,
+) -> RRFRetriever:
+    return RRFRetriever(
+        ParallelHybridRetriever(
+            bm25_retriever=bm25_retriever,
+            dense_retriever=dense_retriever,
+        ),
+        rank_constant=rank_constant,
+        candidate_k=candidate_k,
+    )
+
+
+def build_retrieval_baselines(
+    chunks: Sequence[Document],
+    embeddings: EmbeddingModel,
+) -> tuple[tuple[str, Retriever], ...]:
+    bm25_retriever = build_bm25_retriever(chunks)
+    dense_retriever = build_dense_retriever(
+        chunks,
+        embeddings=embeddings,
+    )
+    rrf_retriever = build_rrf_retriever(
+        bm25_retriever,
+        dense_retriever,
+    )
+
+    return (
+        ("BM25", bm25_retriever),
+        ("Dense", dense_retriever),
+        ("RRF", rrf_retriever),
     )
 
 
@@ -271,28 +311,23 @@ def main() -> None:
     chunks = chunk_documents(documents)
     examples = load_evaluation_examples()
     k_values = (1, 3, 5)
-
-    bm25_retriever = build_bm25_retriever(chunks)
-    dense_retriever = build_dense_retriever(
+    baselines = build_retrieval_baselines(
         chunks,
         embeddings=build_gemini_embeddings(),
     )
 
-    baselines = evaluate_baselines(
-        (
-            ("BM25", bm25_retriever),
-            ("Dense", dense_retriever),
-        ),
+    baseline_evaluations = evaluate_baselines(
+        baselines,
         examples,
         top_k=5,
         k_values=k_values,
     )
 
     print_baseline_comparison(
-        baselines,
+        baseline_evaluations,
         k_values=k_values,
     )
-    print_query_comparison(baselines)
+    print_query_comparison(baseline_evaluations)
 
 
 if __name__ == "__main__":

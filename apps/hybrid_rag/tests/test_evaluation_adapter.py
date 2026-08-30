@@ -3,6 +3,8 @@ from langchain_core.documents import Document
 from apps.hybrid_rag.app.evaluation import EvaluationExample
 from apps.hybrid_rag.app.retrieval import ScoredDocument
 from apps.hybrid_rag.scripts.evaluate_retrieval import (
+    build_retrieval_baselines,
+    build_rrf_retriever,
     evaluate_baselines,
     evaluate_retriever,
     format_rank,
@@ -25,6 +27,37 @@ class FixedRetriever:
     ) -> list[ScoredDocument]:
         self.calls.append((query, top_k))
         return self.results[:top_k]
+
+
+class KeywordEmbeddingModel:
+    def embed_documents(
+        self,
+        texts: list[str],
+    ) -> list[list[float]]:
+        return [
+            self._embed(text)
+            for text in texts
+        ]
+
+    def embed_query(
+        self,
+        text: str,
+    ) -> list[float]:
+        return self._embed(text)
+
+    def _embed(
+        self,
+        text: str,
+    ) -> list[float]:
+        normalized = text.lower()
+
+        if "authorization" in normalized:
+            return [1.0, 0.0]
+
+        if "expired" in normalized:
+            return [0.0, 1.0]
+
+        return [0.0, 0.0]
 
 
 def test_retrieve_chunk_ids_adapts_any_retriever_result_to_ranked_ids() -> None:
@@ -152,6 +185,83 @@ def test_evaluate_baselines_compares_retrievers_with_same_examples() -> None:
     assert baselines[1].summary.recall_at_k[1] == 0.0
     assert bm25_retriever.calls == [("Which chunk matters?", 2)]
     assert dense_retriever.calls == [("Which chunk matters?", 2)]
+
+
+def test_build_rrf_retriever_adapts_fused_results_for_evaluation() -> None:
+    bm25_retriever = FixedRetriever(
+        [
+            ScoredDocument(
+                document=Document(
+                    page_content="BM25 first",
+                    metadata={"chunk_id": "chunk-001"},
+                ),
+                score=2.0,
+            ),
+            ScoredDocument(
+                document=Document(
+                    page_content="Shared",
+                    metadata={"chunk_id": "chunk-003"},
+                ),
+                score=1.0,
+            ),
+        ]
+    )
+    dense_retriever = FixedRetriever(
+        [
+            ScoredDocument(
+                document=Document(
+                    page_content="Shared",
+                    metadata={"chunk_id": "chunk-003"},
+                ),
+                score=0.9,
+            ),
+            ScoredDocument(
+                document=Document(
+                    page_content="Dense second",
+                    metadata={"chunk_id": "chunk-002"},
+                ),
+                score=0.8,
+            ),
+        ]
+    )
+    rrf_retriever = build_rrf_retriever(
+        bm25_retriever,
+        dense_retriever,
+        candidate_k=2,
+    )
+
+    chunk_ids = retrieve_chunk_ids(
+        rrf_retriever,
+        "shared query",
+        top_k=2,
+    )
+
+    assert chunk_ids == ["chunk-003", "chunk-001"]
+    assert bm25_retriever.calls == [("shared query", 2)]
+    assert dense_retriever.calls == [("shared query", 2)]
+
+
+def test_build_retrieval_baselines_includes_rrf() -> None:
+    chunks = [
+        Document(
+            page_content="Authorization header",
+            metadata={"chunk_id": "chunk-006"},
+        ),
+        Document(
+            page_content="Expired token",
+            metadata={"chunk_id": "chunk-004"},
+        ),
+    ]
+
+    baselines = build_retrieval_baselines(
+        chunks,
+        embeddings=KeywordEmbeddingModel(),
+    )
+
+    assert [
+        name
+        for name, _retriever in baselines
+    ] == ["BM25", "Dense", "RRF"]
 
 
 def test_format_rank_returns_first_relevant_rank() -> None:
