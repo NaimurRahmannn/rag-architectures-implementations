@@ -37,7 +37,7 @@ include = ["apps*"]
 
 
 [tool.pytest.ini_options]
-testpaths = ["apps/baseline_rag/tests"]
+testpaths = ["apps"]
 pythonpath = ["."]
 addopts = "-q"
 
