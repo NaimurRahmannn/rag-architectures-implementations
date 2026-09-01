@@ -319,8 +319,3 @@ orchestration checks independent from external APIs and model downloads.
 - Each architecture is runnable on its own while reusing proven components from
   the previous learning phase.
 
-## Next Learning Steps
-
-Natural extensions to the agentic phase include evidence-quality grading,
-corrective retrieval, query rewriting, structured LLM tool calling, context
-compression, conversational memory, and end-to-end observability.
