@@ -56,6 +56,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=20,
         help="Number of candidates to gather before RRF/reranking.",
     )
+    parser.add_argument(
+        "--max-correction-attempts",
+        type=int,
+        default=1,
+        help="Number of corrective retrieval retries after weak evidence.",
+    )
     return parser
 
 
@@ -141,6 +147,7 @@ def build_service(
     settings: Settings,
     *,
     top_k: int,
+    max_correction_attempts: int = 1,
 ) -> AgenticRAGService:
     api_key = settings.require_google_api_key()
 
@@ -151,6 +158,7 @@ def build_service(
             model=settings.gemini_chat_model,
         ),
         default_top_k=top_k,
+        max_correction_attempts=max_correction_attempts,
     )
 
 
@@ -170,6 +178,28 @@ def format_answer_response(
         lines.append(
             f"- {step.tool_name}: {step.query} (top_k={step.top_k})"
         )
+
+    lines.extend(
+        [
+            "",
+            "EVIDENCE REVIEWS",
+            "================",
+        ]
+    )
+
+    for review in response.agent_trace.evidence_reviews:
+        lines.append(
+            f"- attempt={review.attempt} "
+            f"query={review.query!r} "
+            f"sufficient={review.is_sufficient} "
+            f"score={review.score:.2f}"
+        )
+        lines.append(f"  reason={review.reason}")
+
+        if review.corrective_query is not None:
+            lines.append(
+                f"  corrective_query={review.corrective_query!r}"
+            )
 
     lines.extend(
         [
@@ -219,6 +249,9 @@ def main() -> None:
     if args.candidate_k <= 0:
         raise ValueError("candidate-k must be greater than 0")
 
+    if args.max_correction_attempts < 0:
+        raise ValueError("max-correction-attempts must not be negative")
+
     tool_names = parse_tool_names(args.tools)
     documents = load_documents()
     chunks = chunk_documents(documents)
@@ -240,6 +273,7 @@ def main() -> None:
         ),
         settings,
         top_k=args.top_k,
+        max_correction_attempts=args.max_correction_attempts,
     )
     response = service.ask(
         AskRequest(

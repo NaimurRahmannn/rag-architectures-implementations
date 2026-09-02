@@ -5,6 +5,7 @@ from apps.agentic_rag.app.schemas import (
     AgentTrace,
     AnswerResponse,
     Citation,
+    EvidenceReview,
     PlannedStep,
     RetrievedChunk,
     ToolCall,
@@ -54,6 +55,7 @@ def test_argument_parser_exposes_agentic_retrieval_options() -> None:
     assert args.tools == "bm25,dense,hybrid"
     assert args.top_k == 5
     assert args.candidate_k == 20
+    assert args.max_correction_attempts == 1
 
 
 def test_parse_tool_names_normalizes_deduplicates_and_validates() -> None:
@@ -126,6 +128,17 @@ def test_format_answer_response_includes_trace_citations_and_chunks() -> None:
                     retrieved_chunk_ids=["chunk-1"],
                 )
             ],
+            evidence_reviews=[
+                EvidenceReview(
+                    attempt=1,
+                    query="How do resets work?",
+                    is_sufficient=True,
+                    score=0.5,
+                    matched_terms=["resets"],
+                    missing_terms=["work"],
+                    reason="Evidence covers enough query terms.",
+                )
+            ],
         ),
     )
 
@@ -133,5 +146,7 @@ def test_format_answer_response_includes_trace_citations_and_chunks() -> None:
 
     assert "Follow the documented process [1]." in output
     assert "dense: How do resets work? (top_k=5)" in output
+    assert "attempt=1 query='How do resets work?'" in output
+    assert "sufficient=True score=0.50" in output
     assert "[1] chunk-1 (guide.md)" in output
     assert "tool=dense:1" in output

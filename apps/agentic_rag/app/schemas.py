@@ -23,10 +23,22 @@ class ToolCall(BaseModel):
     retrieved_chunk_ids: list[str]
 
 
+class EvidenceReview(BaseModel):
+    attempt: int
+    query: str
+    is_sufficient: bool
+    score: float
+    matched_terms: list[str]
+    missing_terms: list[str]
+    reason: str
+    corrective_query: str | None = None
+
+
 class AgentTrace(BaseModel):
     original_query: str
     planned_steps: list[PlannedStep]
     tool_calls: list[ToolCall]
+    evidence_reviews: list[EvidenceReview] = Field(default_factory=list)
 
 
 class RetrievedChunk(BaseModel):

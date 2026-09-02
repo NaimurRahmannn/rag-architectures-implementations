@@ -86,7 +86,7 @@ def test_service_executes_plan_generates_answer_citations_and_trace() -> None:
         default_top_k=3,
     )
 
-    response = service.ask(AskRequest(query="How should I handle AUTH-42?"))
+    response = service.ask(AskRequest(query="How should I handle recovery codes?"))
 
     assert [chunk.chunk_id for chunk in response.retrieved_chunks] == [
         "chunk-dense",
@@ -98,9 +98,10 @@ def test_service_executes_plan_generates_answer_citations_and_trace() -> None:
         "chunk-bm25",
     ]
     assert planner.calls == [
-        ("How should I handle AUTH-42?", ("dense", "bm25"), 3)
+        ("How should I handle recovery codes?", ("dense", "bm25"), 3)
     ]
     assert len(response.agent_trace.planned_steps) == 2
+    assert response.agent_trace.evidence_reviews[0].is_sufficient is True
     assert response.agent_trace.tool_calls[0].retrieved_chunk_ids == [
         "chunk-dense",
         "chunk-shared",
@@ -109,7 +110,7 @@ def test_service_executes_plan_generates_answer_citations_and_trace() -> None:
         "chunk-shared",
         "chunk-bm25",
     ]
-    assert generator.calls[0][0] == "How should I handle AUTH-42?"
+    assert generator.calls[0][0] == "How should I handle recovery codes?"
     assert "[1]" in generator.calls[0][1]
     assert "Chunk ID: chunk-dense" in generator.calls[0][1]
     assert "Store codes securely." in generator.calls[0][1]
@@ -145,9 +146,80 @@ def test_service_ignores_unknown_and_duplicate_citation_numbers() -> None:
         planner=StaticPlanner((RetrievalStep("bm25", "query", 1),)),
     )
 
-    response = service.ask(AskRequest(query="query"))
+    response = service.ask(AskRequest(query="Evidence"))
 
     assert [citation.index for citation in response.citations] == [1]
+
+
+def test_service_retries_with_corrective_query_when_evidence_is_weak() -> None:
+    class QueryAwareRetriever:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int]] = []
+
+        def search(
+            self,
+            query: str,
+            top_k: int = 5,
+        ) -> list[ScoredDocument]:
+            self.calls.append((query, top_k))
+
+            if query == "rotate recovery codes":
+                return [
+                    make_result(
+                        "chunk-1",
+                        0.9,
+                        "Rotate recovery codes after compromise.",
+                    )
+                ]
+
+            return []
+
+    retriever = QueryAwareRetriever()
+    generator = RecordingGenerator("Rotate recovery codes after compromise [1].")
+    service = AgenticRAGService(
+        tools=(RetrievalTool("dense", retriever),),
+        generator=generator,
+    )
+
+    response = service.ask(
+        AskRequest(query="How should I rotate recovery codes?")
+    )
+
+    assert response.answer == "Rotate recovery codes after compromise [1]."
+    assert [call[0] for call in retriever.calls] == [
+        "How should I rotate recovery codes?",
+        "rotate recovery codes",
+    ]
+    assert [
+        review.is_sufficient
+        for review in response.agent_trace.evidence_reviews
+    ] == [False, True]
+    assert response.agent_trace.evidence_reviews[0].corrective_query == (
+        "rotate recovery codes"
+    )
+
+
+def test_service_abstains_after_exhausting_corrective_retry() -> None:
+    generator = RecordingGenerator("must not be returned")
+    service = AgenticRAGService(
+        tools=(
+            RetrievalTool(
+                "dense",
+                StaticRetriever(
+                    [make_result("chunk-1", 0.2, "Password reset policy.")]
+                ),
+            ),
+        ),
+        generator=generator,
+    )
+
+    response = service.ask(AskRequest(query="How should I configure MFA?"))
+
+    assert response.answer == ABSTENTION_MESSAGE
+    assert response.citations == []
+    assert generator.calls == []
+    assert len(response.agent_trace.evidence_reviews) == 2
+    assert response.agent_trace.evidence_reviews[-1].is_sufficient is False
 
 
 def test_service_rejects_unknown_planner_tool() -> None:
@@ -174,3 +246,9 @@ def test_service_validates_required_tools_and_default_top_k() -> None:
             default_top_k=0,
         )
 
+    with pytest.raises(ValueError, match="max_correction_attempts"):
+        AgenticRAGService(
+            tools=(RetrievalTool("bm25", StaticRetriever([])),),
+            generator=generator,
+            max_correction_attempts=-1,
+        )

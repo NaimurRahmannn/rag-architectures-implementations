@@ -10,9 +10,12 @@ The implementation can:
 - choose retrieval tools according to query characteristics;
 - run BM25, dense, hybrid RRF, and optional cross-encoder reranking;
 - merge and deduplicate evidence from multiple tool calls;
+- grade retrieved evidence before generation;
+- retry retrieval with a corrective keyword query when evidence is weak;
 - generate an answer grounded in numbered source chunks;
 - extract source citations from the generated answer; and
-- return an execution trace containing the plan and tool results.
+- return an execution trace containing the plan, tool results, and evidence
+  reviews.
 
 ## Architecture
 
@@ -37,6 +40,10 @@ The implementation can:
                  merge and deduplicate evidence
                              |
                              v
+                    evidence quality grading
+                  retry with corrected query if weak
+                             |
+                             v
                 numbered context construction
                              |
                              v
@@ -57,6 +64,12 @@ boundary without requiring another LLM call:
 
 All configured matching tools may be used. The final evidence list keeps the
 first occurrence of each chunk and is limited by `top_k`.
+
+Before generation, the service grades evidence with a deterministic lexical
+coverage heuristic. If evidence is missing or too weak, it creates one
+corrective keyword query by default and retries retrieval. If the retry is still
+insufficient, the service abstains instead of sending weak context to the answer
+generator.
 
 ## Folder Structure
 
@@ -125,7 +138,8 @@ Choose the tools exposed to the planner:
   "How should I rotate recovery codes?" `
   --tools bm25,dense,hybrid `
   --top-k 5 `
-  --candidate-k 20
+  --candidate-k 20 `
+  --max-correction-attempts 1
 ```
 
 Enable cross-encoder reranking by including `rerank`:
@@ -168,9 +182,11 @@ not call Gemini or download a cross-encoder model.
 2. The planner returns ordered `RetrievalStep` objects.
 3. Each `RetrievalTool` adapts a retriever result into `RetrievedEvidence`.
 4. Evidence is deduplicated by `chunk_id` and converted into numbered context.
-5. The answer generator receives only the original query and retrieved context.
-6. Citation markers such as `[1]` are resolved to chunk and source metadata.
-7. The response includes the answer, citations, retrieved chunks, and full trace.
+5. The evidence grader checks whether retrieved chunks cover the original query.
+6. Weak evidence triggers a corrective query and retrieval retry.
+7. The answer generator receives only the original query and sufficient context.
+8. Citation markers such as `[1]` are resolved to chunk and source metadata.
+9. The response includes the answer, citations, retrieved chunks, and full trace.
 
 ## Current Scope
 
@@ -178,8 +194,7 @@ This is an educational first agentic layer, not a fully autonomous production
 agent. It does not yet include:
 
 - LLM-based planning or structured tool calling;
-- retrieval-quality grading and corrective retries;
-- query rewriting based on weak evidence;
+- LLM-based evidence grading and query rewriting;
 - web or external knowledge tools;
 - conversational memory or durable state;
 - token-budget-aware context compression; or
