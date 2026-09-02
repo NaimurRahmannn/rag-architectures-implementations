@@ -2,11 +2,23 @@ import pytest
 
 from apps.agentic_rag.app.planning import (
     HeuristicQueryPlanner,
+    LLMDynamicQueryPlanner,
     choose_tools,
     has_identifier,
     is_semantic_question,
+    parse_dynamic_plan_response,
     split_query,
 )
+
+
+class StaticPlannerLLM:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.prompts: list[str] = []
+
+    def generate(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return self.response
 
 
 def test_split_query_creates_subqueries_for_compound_question() -> None:
@@ -57,6 +69,94 @@ def test_planner_creates_one_step_per_subquery_and_tool() -> None:
         ("bm25", "explain password resets", 3),
         ("dense", "explain password resets", 3),
     ]
+    assert all(step.reason is not None for step in plan.steps)
+
+
+def test_llm_dynamic_planner_uses_structured_tool_selection() -> None:
+    llm = StaticPlannerLLM(
+        """
+        {
+          "steps": [
+            {
+              "tool_name": "hybrid",
+              "query": "recovery code rotation",
+              "top_k": 2,
+              "reason": "Hybrid balances terms and semantic intent."
+            },
+            {
+              "tool_name": "bm25",
+              "query": "AUTH-42",
+              "top_k": 5,
+              "reason": "Identifier lookup needs exact matching."
+            }
+          ]
+        }
+        """
+    )
+
+    plan = LLMDynamicQueryPlanner(llm).plan(
+        "How should I rotate codes for AUTH-42?",
+        ("bm25", "dense", "hybrid"),
+        top_k=3,
+    )
+
+    assert plan.original_query == "How should I rotate codes for AUTH-42?"
+    assert [
+        (step.tool_name, step.query, step.top_k, step.reason)
+        for step in plan.steps
+    ] == [
+        (
+            "hybrid",
+            "recovery code rotation",
+            2,
+            "Hybrid balances terms and semantic intent.",
+        ),
+        (
+            "bm25",
+            "AUTH-42",
+            3,
+            "Identifier lookup needs exact matching.",
+        ),
+    ]
+    assert "bm25, dense, hybrid" in llm.prompts[0]
+
+
+def test_dynamic_plan_parser_filters_invalid_steps() -> None:
+    steps = parse_dynamic_plan_response(
+        """
+        ```json
+        {
+          "steps": [
+            {"tool_name": "web", "query": "external", "top_k": 2},
+            {"tool_name": "dense", "query": "valid query", "top_k": "bad"}
+          ]
+        }
+        ```
+        """,
+        available_tools=("dense",),
+        default_top_k=4,
+        max_steps=3,
+    )
+
+    assert [
+        (step.tool_name, step.query, step.top_k)
+        for step in steps
+    ] == [("dense", "valid query", 4)]
+
+
+def test_llm_dynamic_planner_falls_back_to_heuristics_on_bad_output() -> None:
+    plan = LLMDynamicQueryPlanner(
+        StaticPlannerLLM("not-json")
+    ).plan(
+        "Why rotate recovery codes?",
+        ("bm25", "dense", "hybrid"),
+        top_k=2,
+    )
+
+    assert [
+        step.tool_name
+        for step in plan.steps
+    ] == ["dense", "hybrid", "bm25"]
 
 
 def test_planner_rejects_invalid_configuration() -> None:
@@ -68,3 +168,5 @@ def test_planner_rejects_invalid_configuration() -> None:
     with pytest.raises(ValueError, match="available_tools"):
         planner.plan("query", (), top_k=1)
 
+    with pytest.raises(ValueError, match="max_steps"):
+        LLMDynamicQueryPlanner(StaticPlannerLLM("{}"), max_steps=0)

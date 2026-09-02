@@ -239,6 +239,7 @@ def build_agent_trace(
                 tool_name=step.tool_name,
                 query=step.query,
                 top_k=step.top_k,
+                reason=step.reason,
             )
             for attempt in attempts
             for step in attempt.plan.steps

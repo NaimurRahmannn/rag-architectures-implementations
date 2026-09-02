@@ -56,6 +56,7 @@ def test_argument_parser_exposes_agentic_retrieval_options() -> None:
     assert args.top_k == 5
     assert args.candidate_k == 20
     assert args.max_correction_attempts == 1
+    assert args.planner == "heuristic"
 
 
 def test_parse_tool_names_normalizes_deduplicates_and_validates() -> None:
@@ -118,6 +119,7 @@ def test_format_answer_response_includes_trace_citations_and_chunks() -> None:
                     tool_name="dense",
                     query="How do resets work?",
                     top_k=5,
+                    reason="Semantic question benefits from dense retrieval.",
                 )
             ],
             tool_calls=[
@@ -146,6 +148,7 @@ def test_format_answer_response_includes_trace_citations_and_chunks() -> None:
 
     assert "Follow the documented process [1]." in output
     assert "dense: How do resets work? (top_k=5)" in output
+    assert "reason=Semantic question benefits from dense retrieval." in output
     assert "attempt=1 query='How do resets work?'" in output
     assert "sufficient=True score=0.50" in output
     assert "[1] chunk-1 (guide.md)" in output

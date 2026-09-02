@@ -14,6 +14,7 @@ class PlannedStep(BaseModel):
     tool_name: str
     query: str
     top_k: int
+    reason: str | None = None
 
 
 class ToolCall(BaseModel):

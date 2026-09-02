@@ -5,6 +5,12 @@ from collections.abc import Sequence
 
 from langchain_core.documents import Document
 
+from apps.agentic_rag.app.planning import (
+    GeminiPlannerLLM,
+    HeuristicQueryPlanner,
+    LLMDynamicQueryPlanner,
+    QueryPlanner,
+)
 from apps.agentic_rag.app.schemas import AnswerResponse, AskRequest
 from apps.agentic_rag.app.service import AgenticRAGService
 from apps.agentic_rag.app.tools import RetrievalTool
@@ -61,6 +67,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Number of corrective retrieval retries after weak evidence.",
+    )
+    parser.add_argument(
+        "--planner",
+        choices=("heuristic", "llm"),
+        default="heuristic",
+        help="Planner strategy to use for structured tool selection.",
     )
     return parser
 
@@ -142,12 +154,31 @@ def build_tools(
     )
 
 
+def build_planner(
+    planner_name: str,
+    settings: Settings,
+) -> QueryPlanner:
+    if planner_name == "heuristic":
+        return HeuristicQueryPlanner()
+
+    if planner_name == "llm":
+        return LLMDynamicQueryPlanner(
+            GeminiPlannerLLM(
+                api_key=settings.require_google_api_key(),
+                model=settings.gemini_chat_model,
+            )
+        )
+
+    raise ValueError(f"Unknown planner: {planner_name}")
+
+
 def build_service(
     tools: Sequence[RetrievalTool],
     settings: Settings,
     *,
     top_k: int,
     max_correction_attempts: int = 1,
+    planner: QueryPlanner | None = None,
 ) -> AgenticRAGService:
     api_key = settings.require_google_api_key()
 
@@ -157,6 +188,7 @@ def build_service(
             api_key=api_key,
             model=settings.gemini_chat_model,
         ),
+        planner=planner,
         default_top_k=top_k,
         max_correction_attempts=max_correction_attempts,
     )
@@ -178,6 +210,9 @@ def format_answer_response(
         lines.append(
             f"- {step.tool_name}: {step.query} (top_k={step.top_k})"
         )
+
+        if step.reason is not None:
+            lines.append(f"  reason={step.reason}")
 
     lines.extend(
         [
@@ -274,6 +309,7 @@ def main() -> None:
         settings,
         top_k=args.top_k,
         max_correction_attempts=args.max_correction_attempts,
+        planner=build_planner(args.planner, settings),
     )
     response = service.ask(
         AskRequest(

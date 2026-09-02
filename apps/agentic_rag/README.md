@@ -8,6 +8,7 @@ The implementation can:
 
 - decompose a compound question into retrieval subqueries;
 - choose retrieval tools according to query characteristics;
+- use an optional LLM-based dynamic planner for structured tool selection;
 - run BM25, dense, hybrid RRF, and optional cross-encoder reranking;
 - merge and deduplicate evidence from multiple tool calls;
 - grade retrieved evidence before generation;
@@ -54,7 +55,7 @@ The implementation can:
 ```
 
 The planner is intentionally deterministic. It demonstrates the orchestration
-boundary without requiring another LLM call:
+boundary without requiring another LLM call when `--planner heuristic` is used:
 
 - queries containing identifiers such as `AUTH-42` prioritize BM25;
 - semantic questions beginning with words such as `how` or `why` prioritize
@@ -64,6 +65,11 @@ boundary without requiring another LLM call:
 
 All configured matching tools may be used. The final evidence list keeps the
 first occurrence of each chunk and is limited by `top_k`.
+
+For dynamic planning, use `--planner llm`. The LLM planner asks Gemini for a
+strict JSON retrieval plan with `tool_name`, `query`, `top_k`, and `reason` for
+each step. The parser only accepts configured tools and falls back to the
+heuristic planner if the model returns invalid plan JSON.
 
 Before generation, the service grades evidence with a deterministic lexical
 coverage heuristic. If evidence is missing or too weak, it creates one
@@ -142,6 +148,15 @@ Choose the tools exposed to the planner:
   --max-correction-attempts 1
 ```
 
+Use the dynamic LLM planner:
+
+```powershell
+.\.venv\Scripts\python.exe -m apps.agentic_rag.scripts.generate_answer `
+  "Find AUTH-42 and explain how recovery codes should be rotated" `
+  --planner llm `
+  --tools bm25,dense,hybrid,rerank
+```
+
 Enable cross-encoder reranking by including `rerank`:
 
 ```powershell
@@ -179,7 +194,7 @@ not call Gemini or download a cross-encoder model.
 ## Main Data Flow
 
 1. `AgenticRAGService` sends the query and available tool names to the planner.
-2. The planner returns ordered `RetrievalStep` objects.
+2. The planner returns ordered `RetrievalStep` objects with optional reasons.
 3. Each `RetrievalTool` adapts a retriever result into `RetrievedEvidence`.
 4. Evidence is deduplicated by `chunk_id` and converted into numbered context.
 5. The evidence grader checks whether retrieved chunks cover the original query.
@@ -193,7 +208,7 @@ not call Gemini or download a cross-encoder model.
 This is an educational first agentic layer, not a fully autonomous production
 agent. It does not yet include:
 
-- LLM-based planning or structured tool calling;
+- autonomous multi-step action tool calling beyond retrieval;
 - LLM-based evidence grading and query rewriting;
 - web or external knowledge tools;
 - conversational memory or durable state;
